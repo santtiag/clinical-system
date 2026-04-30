@@ -1,0 +1,71 @@
+# Prometheus Configuration for Sistema Clínico
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []
+
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Kong API Gateway
+  - job_name: 'kong'
+    static_configs:
+      - targets: ['kong:8000']
+    metrics_path: /metrics
+
+  # Identity Service
+  - job_name: 'identity-service'
+    static_configs:
+      - targets: ['identity-service:8001']
+    metrics_path: /metrics
+
+  # Scheduling Service
+  - job_name: 'scheduling-service'
+    static_configs:
+      - targets: ['scheduling-service:8002']
+    metrics_path: /metrics
+
+  # Medical Record Service
+  - job_name: 'medical-record-service'
+    static_configs:
+      - targets: ['medical-record-service:8003']
+    metrics_path: /metrics
+
+  # Billing Service
+  - job_name: 'billing-service'
+    static_configs:
+      - targets: ['billing-service:8004']
+    metrics_path: /metrics
+
+  # Reporting Service
+  - job_name: 'reporting-service'
+    static_configs:
+      - targets: ['reporting-service:8005']
+    metrics_path: /metrics
+
+  # Admin Panel
+  - job_name: 'admin-panel'
+    static_configs:
+      - targets: ['admin-panel:8006']
+    metrics_path: /metrics
+
+  # RabbitMQ
+  - job_name: 'rabbitmq'
+    static_configs:
+      - targets: ['rabbitmq:15672']
+    metrics_path: /metrics
+
+  # PostgreSQL (usando postgres_exporter si está disponible)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']

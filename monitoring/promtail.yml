@@ -1,0 +1,90 @@
+# Promtail Configuration for Sistema Clínico
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /var/log/positions.yaml
+
+client:
+  url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Logs de servicios FastAPI
+  - job_name: 'fastapi-services'
+    static_configs:
+      - targets: ['localhost']
+        labels:
+          job: 'fastapi-services'
+          service: 'identity-service'
+          __path__: '/var/log/identity-service/*.log'
+      - targets: ['localhost']
+        labels:
+          job: 'fastapi-services'
+          service: 'scheduling-service'
+          __path__: '/var/log/scheduling-service/*.log'
+      - targets: ['localhost']
+        labels:
+          job: 'fastapi-services'
+          service: 'medical-record-service'
+          __path__: '/var/log/medical-record-service/*.log'
+      - targets: ['localhost']
+        labels:
+          job: 'fastapi-services'
+          service: 'billing-service'
+          __path__: '/var/log/billing-service/*.log'
+      - targets: ['localhost']
+        labels:
+          job: 'fastapi-services'
+          service: 'reporting-service'
+          __path__: '/var/log/reporting-service/*.log'
+      - targets: ['localhost']
+        labels:
+          job: 'fastapi-services'
+          service: 'admin-panel'
+          __path__: '/var/log/admin-panel/*.log'
+    pipeline_stages:
+      - json:
+          expressions:
+            timestamp: timestamp
+            level: level
+            service: service
+            message: message
+            trace_id: trace_id
+      - labels:
+          level:
+          service:
+          trace_id:
+
+  # Logs de Kong
+  - job_name: 'kong'
+    static_configs:
+      - targets: ['localhost']
+        labels:
+          job: 'kong'
+          __path__: '/var/log/kong/*.log'
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<ip>\S+) - \S+ \[(?P<timestamp>[^\]]+)\] "(?P<method>\S+) (?P<path>\S+)" (?P<status>\d+)'
+      - labels:
+          ip:
+          method:
+          path:
+          status:
+
+  # Logs de Docker
+  - job_name: 'docker'
+    docker:
+      containers:
+        scrape_interval: 10s
+        pipeline_stages:
+          - json:
+              expressions:
+                timestamp: timestamp
+                message: log
+                stream: stream
+                labels:
+                  labels:
+          - labels:
+              stream:

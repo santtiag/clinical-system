@@ -1,0 +1,371 @@
+version: '3.8'
+
+services:
+  # ====================
+  # BASE SERVICES
+  # ====================
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: clinico-postgres
+    environment:
+      POSTGRES_USER: clinico
+      POSTGRES_PASSWORD: clinico_secret
+      POSTGRES_MULTIPLE_DATABASES: identity_db,scheduling_db,medical_db,billing_db,reporting_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clinico"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - clinico-network
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: clinico-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: clinico
+      RABBITMQ_DEFAULT_PASS: clinico_secret
+    ports:
+      - "5672:5672"
+      - "15672:15672"  # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - clinico-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: clinico-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - clinico-network
+
+  # ====================
+  # API GATEWAY
+  # ====================
+
+  kong:
+    image: kong:3.4
+    container_name: clinico-kong
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+    ports:
+      - "8000:8000"      # Proxy
+      - "8443:8443"      # Proxy HTTPS
+      - "8001:8001"      # Admin API
+    volumes:
+      - ./Kong:/kong
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - clinico-network
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ====================
+  # MICROSERVICIOS
+  # ====================
+
+  identity-service:
+    build:
+      context: ./services/identity-service
+      dockerfile: Dockerfile
+    container_name: clinico-identity-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://clinico:clinico_secret@postgres:5432/identity_db
+      RABBITMQ_URL: amqp://clinico:clinico_secret@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+      SERVICE_NAME: identity-service
+      SERVICE_PORT: 8001
+      JWT_SECRET: ${JWT_SECRET:-super_secret_key_change_in_production}
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRATION_MINUTES: 60
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - clinico-network
+
+  scheduling-service:
+    build:
+      context: ./services/scheduling-service
+      dockerfile: Dockerfile
+    container_name: clinico-scheduling-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://clinico:clinico_secret@postgres:5432/scheduling_db
+      RABBITMQ_URL: amqp://clinico:clinico_secret@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+      SERVICE_NAME: scheduling-service
+      SERVICE_PORT: 8002
+      IDENTITY_SERVICE_URL: http://identity-service:8001
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      identity-service:
+        condition: service_started
+    networks:
+      - clinico-network
+
+  medical-record-service:
+    build:
+      context: ./services/medical-record-service
+      dockerfile: Dockerfile
+    container_name: clinico-medical-record-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://clinico:clinico_secret@postgres:5432/medical_db
+      RABBITMQ_URL: amqp://clinico:clinico_secret@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+      SERVICE_NAME: medical-record-service
+      SERVICE_PORT: 8003
+      IDENTITY_SERVICE_URL: http://identity-service:8001
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      identity-service:
+        condition: service_started
+    networks:
+      - clinico-network
+
+  billing-service:
+    build:
+      context: ./services/billing-service
+      dockerfile: Dockerfile
+    container_name: clinico-billing-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://clinico:clinico_secret@postgres:5432/billing_db
+      RABBITMQ_URL: amqp://clinico:clinico_secret@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+      SERVICE_NAME: billing-service
+      SERVICE_PORT: 8004
+      IDENTITY_SERVICE_URL: http://identity-service:8001
+      SCHEDULING_SERVICE_URL: http://scheduling-service:8002
+    ports:
+      - "8004:8004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      identity-service:
+        condition: service_started
+      scheduling-service:
+        condition: service_started
+    networks:
+      - clinico-network
+
+  reporting-service:
+    build:
+      context: ./services/reporting-service
+      dockerfile: Dockerfile
+    container_name: clinico-reporting-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://clinico:clinico_secret@postgres:5432/reporting_db
+      RABBITMQ_URL: amqp://clinico:clinico_secret@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+      SERVICE_NAME: reporting-service
+      SERVICE_PORT: 8005
+    ports:
+      - "8005:8005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - clinico-network
+
+  admin-panel:
+    build:
+      context: ./services/admin-panel
+      dockerfile: Dockerfile
+    container_name: clinico-admin-panel
+    environment:
+      DATABASE_URL: postgresql+asyncpg://clinico:clinico_secret@postgres:5432/reporting_db
+      RABBITMQ_URL: amqp://clinico:clinico_secret@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+      SERVICE_NAME: admin-panel
+      SERVICE_PORT: 8006
+      IDENTITY_SERVICE_URL: http://identity-service:8001
+      SCHEDULING_SERVICE_URL: http://scheduling-service:8002
+      MEDICAL_SERVICE_URL: http://medical-record-service:8003
+      BILLING_SERVICE_URL: http://billing-service:8004
+    ports:
+      - "8006:8006"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - clinico-network
+
+  # ====================
+  # WORKERS
+  # ====================
+
+  notification-worker:
+    build:
+      context: ./workers/notification-worker
+      dockerfile: Dockerfile
+    container_name: clinico-notification-worker
+    environment:
+      RABBITMQ_URL: amqp://clinico:clinico_secret@rabbitmq:5672
+      SERVICE_NAME: notification-worker
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - clinico-network
+
+  audit-worker:
+    build:
+      context: ./workers/audit-worker
+      dockerfile: Dockerfile
+    container_name: clinico-audit-worker
+    environment:
+      RABBITMQ_URL: amqp://clinico:clinico_secret@rabbitmq:5672
+      DATABASE_URL: postgresql+asyncpg://clinico:clinico_secret@postgres:5432/identity_db
+      SERVICE_NAME: audit-worker
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - clinico-network
+
+  # ====================
+  # MONITORING
+  # ====================
+
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: clinico-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - clinico-network
+
+  grafana:
+    image: grafana/grafana:10.0.0
+    container_name: clinico-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-piechart-panel
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+    networks:
+      - clinico-network
+
+  loki:
+    image: grafana/loki:2.8.0
+    container_name: clinico-loki
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki/loki.yml:/etc/loki/local-config.yaml
+      - loki_data:/loki
+    networks:
+      - clinico-network
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.47
+    container_name: clinico-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      SPAN_STORAGE_TYPE: badger
+      BADGER_EPHEMERAL: "true"
+    ports:
+      - "16686:16686"  # UI
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    networks:
+      - clinico-network
+
+  promtail:
+    image: grafana/promtail:2.8.0
+    container_name: clinico-promtail
+    volumes:
+      - ./monitoring/promtail.yml:/etc/promtail/promtail.yml
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - loki
+    networks:
+      - clinico-network
+
+# ====================
+# NETWORKS
+# ====================
+
+networks:
+  clinico-network:
+    driver: bridge
+
+# ====================
+# VOLUMES
+# ====================
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
