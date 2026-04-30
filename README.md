@@ -10,23 +10,23 @@ Sistema de gestión clínica basado en microservicios con FastAPI, aplicando Dom
                                     │   (Auth JWT, Rate Limit, Routing, Logs)    │
                                     └──────────────────┬──────────────────────────┘
                                                        │
-          ┌──────────────────┬──────────────────┬──────┴──────┬──────────────────┐
-          │                  │                  │             │                  │
+          ┌──────────────────┬─────────────────┬───────┴─────┬───────────────┐
+          │                  │                 │             │               │
    ┌──────▼──────┐   ┌───────▼──────┐   ┌──────▼─────┐  ┌────▼────┐   ┌──────▼──────┐
-   │   Identity  │   │  Scheduling  │   │   Medical  │  │ Billing │  │  Reporting  │
-   │   Service   │   │   Service   │   │   Record   │  │ Service │  │   Service   │
-   │  (Puerto    │   │  (Puerto     │   │  (Puerto   │  │(Puerto  │  │  (Puerto    │
-   │   8001)     │   │   8002)      │   │   8003)     │  │ 8004)   │  │   8005)      │
-   └──────┬───────┘   └──────┬───────┘   └──────┬─────┘  └───┬────┘  └──────┬───────┘
-          │                  │                  │             │                  │
-          ▼                  ▼                  ▼             ▼                  ▼
+   │   Identity  │   │  Scheduling  │   │   Medical  │  │ Billing │   │  Reporting  │
+   │   Service   │   │   Service    │   │   Record   │  │ Service │   │   Service   │
+   │  (Puerto    │   │  (Puerto     │   │  (Puerto   │  │(Puerto  │   │  (Puerto    │
+   │   8001)     │   │   8002)      │   │   8003)    │  │ 8004)   │   │   8005)     │
+   └──────┬──────┘   └──────┬───────┘   └───────┬────┘  └─────┬───┘   └──────────┬──┘
+          │                 │                   │             │                  │
+          ▼                 ▼                   ▼             ▼                  ▼
    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
    │ PostgreSQL  │    │ PostgreSQL  │    │ PostgreSQL  │ │ PostgreSQL  │ │ PostgreSQL  │
    │ (identity_db│    │(scheduling_ │    │ (medical_db │ │ (billing_db │ │(reporting_db│
    │             │    │    db)      │    │             │ │             │ │             │
    └─────────────┘    └─────────────┘    └─────────────┘ └─────────────┘ └─────────────┘
           │                  │                  │             │                  │
-          └──────────────────┴────────┬─────────┴─────────────┴──────────────────┘
+          └──────────────────┴─────────┬────────┴─────────────┴──────────────────┘
                                        │
                               ┌────────▼────────┐
                               │    RabbitMQ     │
@@ -35,10 +35,10 @@ Sistema de gestión clínica basado en microservicios con FastAPI, aplicando Dom
                                        │
           ┌────────────────────────────┼────────────────────────────┐
           │                            │                            │
-   ┌──────▼──────┐              ┌───────▼──────┐              ┌───────▼──────┐
-   │ Notification│              │    Audit     │              │   Logging    │
-   │   Worker   │              │    Worker    │              │   (ELK)      │
-   └─────────────┘              └──────────────┘              └──────────────┘
+   ┌──────▼──────┐              ┌──────▼──────┐              ┌──────▼──────┐
+   │ Notification│              │    Audit    │              │   Logging   │
+   │   Worker    │              │    Worker   │              │   (ELK)     │
+   └─────────────┘              └─────────────┘              └─────────────┘
 ```
 
 ## Microservicios
